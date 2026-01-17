@@ -1,4 +1,7 @@
-// Config via querystring
+// Comments Overlay (WebSocket first, fallback polling)
+// Uso: ?ws=ws://host:PORT&channel=nome  ou  ?domain=http://localhost:3900
+// Parâmetro opcional: lifetime (ms) para duração do comentário, ex: ?lifetime=10000
+
 const params = new URLSearchParams(window.location.search);
 const wsUrl = params.get("ws") || null;           // ex: ws://localhost:PORT ou wss://host:PORT
 const channel = params.get("channel") || "default";
@@ -6,9 +9,9 @@ const domain = params.get("domain") || "http://localhost:3900"; // fallback poll
 const commentLifetime = parseInt(params.get("lifetime") || "10000", 10); // ms
 
 const container = document.getElementById("comments-container");
-const status = { connected: false };
+const statusEl = document.getElementById("status");
 
-// === Função original mantida (texto simples) ===
+// === Função simples (texto) ===
 function addComment(text) {
   const commentElement = document.createElement("div");
   commentElement.textContent = text;
@@ -16,9 +19,8 @@ function addComment(text) {
 
   container.appendChild(commentElement);
 
-  // Remove após a duração
+  // Remove após a duração com animação de saída
   setTimeout(() => {
-    // animação de saída
     commentElement.style.animation = "slideOut 420ms ease forwards";
     setTimeout(() => commentElement.remove(), 420);
   }, commentLifetime);
@@ -47,7 +49,7 @@ function addCommentRich({ name, avatar, text }) {
   }, commentLifetime);
 }
 
-// Pequena função para escapar HTML
+// Escapar HTML
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -57,10 +59,9 @@ function escapeHtml(s) {
     .replace(/'/g, "&#039;");
 }
 
-// === Parser flexível ===
-// Aceita: object {username, avatar, text} OR string JSON OR "name|avatar|text" OR "name: message" OR plain text
+// Parser flexível: aceita object {username, avatar, text} OR JSON string OR "name|avatar|text" OR "name: message" OR plain text
 function parseIncoming(raw) {
-  if (!raw && raw !== "") return null;
+  if (raw === null || raw === undefined) return null;
 
   // object
   if (typeof raw === "object" && raw !== null) {
@@ -116,11 +117,13 @@ function connectWS() {
     return;
   }
 
+  statusEl.textContent = "A ligar (WebSocket)…";
+
   ws.onopen = () => {
     console.log("WS open", wsUrl);
-    status.connected = true;
-    // subscribe if API expects it (adapta conforme Social Stream Ninja)
-    try { ws.send(JSON.stringify({ action: "subscribe", channel })); } catch(e){}
+    statusEl.textContent = "Ligado (WebSocket)";
+    // subscreve canal se a API suportar (adapta conforme necessário)
+    try { ws.send(JSON.stringify({ action: "subscribe", channel })); } catch (e) {}
   };
 
   ws.onmessage = (evt) => {
@@ -140,7 +143,7 @@ function connectWS() {
 
   ws.onclose = () => {
     console.warn("WS closed");
-    status.connected = false;
+    statusEl.textContent = "WebSocket fechado — a tentar reconectar…";
     scheduleReconnect();
     startPolling(); // fallback
   };
@@ -170,7 +173,7 @@ function handleRaw(raw) {
 }
 
 function addFromParsed(parsed) {
-  // evita duplicados simples por texto
+  // evita duplicados simples por texto+nome
   const key = (parsed.text || "") + "|" + (parsed.name || "");
   if (seen.has(key)) return;
   seen.add(key);
@@ -181,12 +184,8 @@ function addFromParsed(parsed) {
     seen = new Set(arr);
   }
 
-  // se houver nome ou avatar, usa versão rica
-  if (parsed.name || parsed.avatar) {
-    addCommentRich(parsed);
-  } else {
-    addComment(parsed.text);
-  }
+  if (parsed.name || parsed.avatar) addCommentRich(parsed);
+  else addComment(parsed.text);
 }
 
 // === Polling fallback (usa /wordcloud) ===
@@ -199,8 +198,13 @@ async function pollOnce() {
       const parsed = parseIncoming(entry);
       if (parsed) addFromParsed(parsed);
     }
+
+    if (statusEl.textContent.startsWith("A ligar") || statusEl.textContent.startsWith("Sem ligação")) {
+      statusEl.textContent = "A ler comentários…";
+    }
   } catch (e) {
     console.error("Polling error", e);
+    statusEl.textContent = "Sem ligação ao servidor";
   }
 }
 
@@ -216,7 +220,7 @@ function stopPolling() {
   pollingTimer = null;
 }
 
-// === Simulação para testes (mantém a tua função) ===
+// === Simulação para testes (descomenta para usar) ===
 function simulateComments() {
   const sample = [
     "João|https://i.pravatar.cc/60?img=3|Olá, pessoal!",
@@ -229,7 +233,6 @@ function simulateComments() {
   let i = 0;
   setInterval(() => {
     const item = sample[i % sample.length];
-    // chama o parser para simular entrada real
     handleRaw(item);
     i++;
   }, 2000);
@@ -239,6 +242,14 @@ function simulateComments() {
 (function init() {
   if (wsUrl) connectWS();
   else startPolling();
+
+  // limpeza periódica de IDs antigos
+  setInterval(() => {
+    if (seen.size > 500) {
+      const keep = Array.from(seen).slice(-200);
+      seen = new Set(keep);
+    }
+  }, 60_000);
 
   // descomenta para simular localmente
   // simulateComments();
