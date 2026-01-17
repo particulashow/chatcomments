@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Comments Overlay</title>
+  <title>Floating Comments Overlay</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="overlay">
     <div class="header">
-      <div class="title">Chat ao Vivo</div>
+      <div class="title">Comentários</div>
       <div class="status" id="status">A ligar…</div>
     </div>
 
-    <div id="comments-container" class="comments-container"></div>
+    <div id="stage" class="stage" aria-live="polite"></div>
   </div>
 
   <script src="./script.js"></script>
